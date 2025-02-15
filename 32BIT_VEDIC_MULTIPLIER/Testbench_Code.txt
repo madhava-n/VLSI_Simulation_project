@@ -1,0 +1,77 @@
+class transaction;
+  randc logic [31:0] a;
+  randc logic [31:0] b;
+  logic [63:0] expected_out;
+  
+  constraint input_range {
+    a inside {[0:50]}; 
+    b inside {[0:50]}; 
+  }
+  
+  function void post_randomize();
+    expected_out = a * b;
+  endfunction
+endclass
+
+class environment;
+  virtual ports vif;
+  transaction trans;
+  int num_transactions;
+  
+  function new(virtual ports vif, int num_transactions);
+    this.vif = vif;
+    this.num_transactions = num_transactions;
+    trans = new();
+  endfunction
+  
+  task run();
+    repeat(num_transactions) begin
+      assert(trans.randomize());
+      drive_inputs(trans);
+      #10;
+      check_output(trans);
+    end
+  endtask
+  
+  task drive_inputs(transaction trans);
+    vif.a = trans.a;
+    vif.b = trans.b;
+  endtask
+  
+  task check_output(transaction trans);
+    assert(vif.out === trans.expected_out)
+      $display("PASS: a=%0d, b=%0d, out=%0d, expected out=%0d", trans.a, trans.b, vif.out, trans.expected_out);
+    else
+      $error("FAIL: a=%0d, b=%0d, out=%0d, expected out=%0d", trans.a, trans.b, vif.out, trans.expected_out);
+  endtask
+endclass
+
+module testbench;
+  logic clk;
+  logic reset;
+  ports intf();
+  vedic_multi_32bit dut(.intf(intf));
+  
+  initial begin
+    clk = 0;
+    forever #5 clk = ~clk;
+  end
+  
+  assign intf.clk = clk;
+  assign intf.reset = reset;
+  
+  environment env;
+  
+  initial begin
+    reset = 1;
+    #20 reset = 0;
+    env = new(intf, 20); 
+    env.run();
+    #10 $finish;
+  end
+  
+  initial begin
+    $dumpfile("vedic_multi_32bit.vcd");
+    $dumpvars(0, testbench);
+  end
+endmodule
