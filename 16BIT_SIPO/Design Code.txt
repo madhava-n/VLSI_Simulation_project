@@ -1,0 +1,26 @@
+interface sipo_inf #(parameter WIDTH = 16); 
+  logic clk, rst, serial_in;            
+  bit [WIDTH-1:0] parallel_out, buffer;      
+  integer bit_count=0;
+  modport sipo_ports (
+    input clk, rst, serial_in, bit_count, buffer,
+    output parallel_out
+  );
+endinterface
+
+module sipo #(parameter WIDTH = 16) (sipo_inf.sipo_ports s);
+  
+  always @(posedge s.clk or posedge s.rst) begin
+    if (s.rst) begin
+      s.parallel_out <= 0;
+      s.buffer <= 0;
+      s.bit_count <= 0;
+    end else begin
+      s.buffer <= {s.buffer[WIDTH-2:0], s.serial_in}; 
+      s.bit_count += 1;
+    end
+    if (s.bit_count == WIDTH) begin
+      s.parallel_out <= s.buffer;
+    end
+  end
+endmodule

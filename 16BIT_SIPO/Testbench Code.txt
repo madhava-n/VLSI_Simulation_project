@@ -1,0 +1,33 @@
+module tb_sipo;
+  parameter WIDTH = 16;
+  sipo_inf #(WIDTH) sipo_if();
+
+  initial begin
+    sipo_if.clk = 0;
+    forever #5 sipo_if.clk = ~sipo_if.clk;
+  end
+
+  initial begin
+    $dumpfile("dump.vcd");
+    $dumpvars(0, tb_sipo); 
+  end
+
+  initial begin
+    sipo_if.rst = 1;
+    sipo_if.serial_in = 0;
+    #15 sipo_if.rst = 0; 
+    repeat (WIDTH) begin
+      @(posedge sipo_if.clk);
+      sipo_if.serial_in = $random % 2;
+    end
+    #10 $finish;
+  end
+
+  sipo #(WIDTH) uut (
+    .s(sipo_if.sipo_ports)
+  );
+
+  initial begin
+    $monitor("Time: %0t | Serial In: %0b | Parallel Out: %0b", $time, sipo_if.serial_in, sipo_if.parallel_out);
+  end
+endmodule
