@@ -1,0 +1,157 @@
+interface ahb_if;
+  logic        HCLK;
+  logic        HRESETn;
+  logic [31:0] HADDR;
+  logic [2:0]  HBURST;
+  logic [2:0]  HSIZE;
+  logic [1:0]  HTRANS;
+  logic [31:0] HWDATA;
+  logic        HWRITE;
+  logic [31:0] HRDATA;
+  logic        HREADY;
+  logic [1:0]  HRESP;
+  logic        HSEL;
+endinterface
+
+class AHB_transaction;
+  rand bit [31:0] addr;
+  rand bit [31:0] data;
+  rand bit [2:0]  burst;
+  rand bit [2:0]  size;
+  rand bit [1:0]  trans;
+  rand bit        write;
+
+  function void display();
+    $display("AHB Transaction: addr=%0h, data=%0h, burst=%0h, size=%0h, trans=%0h, write=%0b",
+             addr, data, burst, size, trans, write);
+  endfunction
+endclass
+
+class AHB_master;
+  virtual ahb_if vif;
+
+  function new(virtual ahb_if vif);
+    this.vif = vif;
+  endfunction
+
+  task run();
+    AHB_transaction tr = new();
+    forever begin
+      @(posedge vif.HCLK);
+      if (vif.HRESETn) begin
+        if (!tr.randomize()) begin
+          $error("Randomization failed!");
+        end
+        vif.HADDR  <= tr.addr;
+        vif.HBURST <= tr.burst;
+        vif.HSIZE  <= tr.size;
+        vif.HTRANS <= tr.trans;
+        vif.HWDATA <= tr.data;
+        vif.HWRITE <= tr.write;
+        tr.display();
+      end
+    end
+  endtask
+endclass
+
+class AHB_slave;
+  virtual ahb_if vif;
+  bit [31:0] mem[];
+  bit [31:0] start_addr;
+  bit [31:0] end_addr;
+
+  function new(virtual ahb_if vif, bit [31:0] start_addr, bit [31:0] end_addr);
+    this.vif = vif;
+    this.start_addr = start_addr;
+    this.end_addr = end_addr;
+  endfunction
+
+  task run();
+    forever begin
+      @(posedge vif.HCLK);
+      if (vif.HRESETn && vif.HSEL) begin
+        if (vif.HWRITE && vif.HTRANS[1]) begin
+          mem[vif.HADDR] = vif.HWDATA;
+        end else if (!vif.HWRITE && vif.HTRANS[1]) begin
+          vif.HRDATA <= mem[vif.HADDR];
+        end
+        vif.HREADY <= 1'b1;
+        vif.HRESP  <= 2'b00; 
+      end
+    end
+  endtask
+endclass
+
+class AHB_arbiter;
+  virtual ahb_if vif;
+
+  function new(virtual ahb_if vif);
+    this.vif = vif;
+  endfunction
+
+  task run();
+    vif.HREADY <= 1'b1;
+  endtask
+endclass
+
+class AHB_decoder;
+  virtual ahb_if vif;
+  AHB_slave slaves[];
+
+  function new(virtual ahb_if vif, AHB_slave slaves[]);
+    this.vif = vif;
+    this.slaves = slaves;
+  endfunction
+
+  task run();
+    forever begin
+      @(posedge vif.HCLK);
+      if (vif.HRESETn) begin
+        foreach (slaves[i]) begin
+          if (vif.HADDR >= slaves[i].start_addr && vif.HADDR <= slaves[i].end_addr) begin
+            slaves[i].vif.HSEL <= 1'b1;
+          end else begin
+            slaves[i].vif.HSEL <= 1'b0;
+          end
+        end
+      end
+    end
+  endtask
+endclass
+
+class AHB_bus;
+  virtual ahb_if vif;
+  AHB_master master;
+  AHB_slave slaves[];
+  AHB_arbiter arbiter;
+  AHB_decoder decoder;
+
+  function new(virtual ahb_if vif, int num_slaves);
+    this.vif = vif;
+    this.master = new(vif);
+    this.slaves = new[num_slaves];
+    foreach (this.slaves[i]) begin
+      this.slaves[i] = new(vif, i * 32'h1000, (i + 1) * 32'h1000 - 1);
+    end
+    this.arbiter = new(vif);
+    this.decoder = new(vif, this.slaves);
+  endfunction
+
+  task run();
+    fork
+      master.run();
+      arbiter.run();
+      decoder.run();
+      foreach (slaves[i]) slaves[i].run();
+    join
+  endtask
+endclass
+
+module ahb_system(ahb_if ahb_intf);
+  AHB_bus bus;
+
+  initial begin
+    bus = new(ahb_intf, 4);
+    bus.run();
+  end
+endmodule
